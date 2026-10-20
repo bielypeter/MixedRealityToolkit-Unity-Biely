@@ -6,8 +6,14 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/PupilLabs/Scenes/PL_HandInteractionExamples.unity
+    path: Assets/PupilLabs/Scenes/MainMenu.unity
+    guid: 695d7a98e553ae940a0ba9491ddd5166
+  - enabled: 1
+    path: Assets/PupilLabs/Scenes/Interface1.unity
     guid: 3834769639e56da47ba549a25b3ee421
+  - enabled: 1
+    path: Assets/PupilLabs/Scenes/Interface2.unity
+    guid: f3ee0e59adfceae4bac92494f65f96e0
   - enabled: 1
     path: Assets/PupilLabs/Scenes/PL_Calibration_Short.unity
     guid: 14ffa2e2ad9ef0e4bbda317ba4f6907e
@@ -35,6 +41,9 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/PupilLabs/Scenes/PL_EyeTrackingTargetPositioningExample.unity
     guid: 038eca8f962add945be264dd347ca484
+  - enabled: 1
+    path: Assets/WheelchairSim/Scenes/WheelchairSim.unity
+    guid: 1df393887a9a9bf4ba39a5b3ebdbbd5a
   m_configObjects:
     UnityEditor.XR.ARCore.ARCoreSettings: {fileID: 11400000, guid: 87467803e919cef4394e7f39c6521b51, type: 2}
     com.unity.input.settings: {fileID: 11400000, guid: e61946fb8f8ff5e418d6ebb56cca2034, type: 2}
