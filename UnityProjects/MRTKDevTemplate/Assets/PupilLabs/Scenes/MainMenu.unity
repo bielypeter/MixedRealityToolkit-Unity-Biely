@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 0}
-  m_IndirectSpecularColor: {r: 0.18028378, g: 0.22571412, b: 0.30692285, a: 1}
+  m_IndirectSpecularColor: {r: 0.18028301, g: 0.22571309, b: 0.30692127, a: 1}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -216,6 +216,7 @@ MonoBehaviour:
   overrideEyeHeight: 1
   seatedEyeHeight: 1.2
   panel: {fileID: 1305144949}
+  keepPanelScenePose: 1
   forceOpaqueCamera: 1
   backgroundColor: {r: 0.62, g: 0.72, b: 0.82, a: 1}
 --- !u!4 &694401873
@@ -813,7 +814,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6023871717347753662, guid: 779a387bd0247ec4281ea9b35c735fb3, type: 3}
       propertyPath: m_AnchoredPosition.y
-      value: 1.6
+      value: 1.2
       objectReference: {fileID: 0}
     - target: {fileID: 6023871717347753662, guid: 779a387bd0247ec4281ea9b35c735fb3, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
@@ -1051,6 +1052,10 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 7198405369076847247, guid: 94bffd9210e61624185ae6fced99f5bf, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8203144665717818347, guid: 94bffd9210e61624185ae6fced99f5bf, type: 3}
+      propertyPath: cameraSettings.simulationEnabled
       value: 0
       objectReference: {fileID: 0}
     m_RemovedComponents: []
