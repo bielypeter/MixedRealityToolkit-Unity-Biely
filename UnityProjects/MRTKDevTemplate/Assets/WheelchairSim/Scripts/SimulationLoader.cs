@@ -8,7 +8,7 @@ using UnityEngine.SceneManagement;
 namespace WheelchairSim
 {
     /// <summary>
-    /// Put in an interface scene (Interface1 / Interface2). With <see cref="Simulate"/> on, it loads the shared
+    /// Put in an interface scene (Interface1 / Interface2 / Interface3). With <see cref="Simulate"/> on, it loads the shared
     /// simulation scene additively and seats the user in the virtual wheelchair: the XR rig and the interface panel are
     /// parented to the chair, so both move with it. With it off, the scene is untouched (real chair over BLE only).
     /// </summary>
@@ -39,7 +39,7 @@ namespace WheelchairSim
         [SerializeField, Range(0.8f, 1.8f)]
         private float seatedEyeHeight = 1.2f;
 
-        [Tooltip("Interface panel to mount on the chair. Empty = the canvas of the JoystickController / GazeArrowPad in this scene.")]
+        [Tooltip("Interface panel to mount on the chair. Empty = the canvas of the JoystickController / GazeArrowPad / GazeSpeedPad in this scene.")]
         [SerializeField]
         private Transform panel;
 
@@ -208,6 +208,10 @@ namespace WheelchairSim
             if (control == null)
             {
                 control = FindObjectOfType<GazeArrowPad>();
+            }
+            if (control == null)
+            {
+                control = FindObjectOfType<GazeSpeedPad>();
             }
             if (control == null)
             {

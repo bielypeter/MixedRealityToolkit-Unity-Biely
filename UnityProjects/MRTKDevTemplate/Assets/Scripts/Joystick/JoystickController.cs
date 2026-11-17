@@ -83,6 +83,10 @@ namespace MixedReality.Toolkit.Examples.Demos
         [SerializeField]
         private Color activeColor = new Color(0.49f, 0.61f, 1f, 1f);
 
+        [SerializeField]
+        [Tooltip("Knob color while a stick position is locked (see Lock).")]
+        private Color lockedColor = new Color(0.49f, 0.61f, 1f, 0.75f);
+
         [Header("Events")]
         [SerializeField]
         [Tooltip("Raised every frame the value changes.")]
@@ -106,6 +110,12 @@ namespace MixedReality.Toolkit.Examples.Demos
         public Vector2 Velocity { get; private set; }
 
         public bool IsHeld { get; private set; }
+
+        /// <summary>True while a stick position is locked: it keeps driving without being held.</summary>
+        public bool IsLocked { get; private set; }
+
+        /// <summary>The locked stick position (unit circle); zero when not locked.</summary>
+        public Vector2 LockedInput { get; private set; }
 
         public Vector2Event OnValueChanged => onValueChanged;
 
@@ -143,6 +153,8 @@ namespace MixedReality.Toolkit.Examples.Demos
         {
             rectTransform = (RectTransform)transform;
             IsHeld = false;
+            IsLocked = false;
+            LockedInput = Vector2.zero;
             StickInput = Vector2.zero;
             Velocity = Vector2.zero;
             if (knob != null)
@@ -160,7 +172,7 @@ namespace MixedReality.Toolkit.Examples.Demos
                 return;
             }
 
-            if (!IsHeld && knob != null && knob.anchoredPosition != Vector2.zero)
+            if (!IsHeld && !IsLocked && knob != null && knob.anchoredPosition != Vector2.zero)
             {
                 knob.anchoredPosition = returnTime > 0f
                     ? Vector2.SmoothDamp(knob.anchoredPosition, Vector2.zero, ref knobVelocity, returnTime)
@@ -217,6 +229,8 @@ namespace MixedReality.Toolkit.Examples.Demos
         public void BeginHold()
         {
             IsHeld = true;
+            IsLocked = false; // taking the stick again overrides a lock
+            LockedInput = Vector2.zero;
             knobVelocity = Vector2.zero;
             engageProgress = 0f;
             ApplyHighlight();
@@ -235,7 +249,41 @@ namespace MixedReality.Toolkit.Examples.Demos
         public void EndHold()
         {
             IsHeld = false;
-            StickInput = Vector2.zero;
+            StickInput = IsLocked ? LockedInput : Vector2.zero;
+            ApplyHighlight();
+        }
+
+        /// <summary>
+        /// Releases the hold but keeps driving with <paramref name="stickInput"/> (unit circle) until
+        /// <see cref="Unlock"/> or <see cref="BeginHold"/>. The knob stays at the locked position.
+        /// </summary>
+        public void Lock(Vector2 stickInput)
+        {
+            LockedInput = Vector2.ClampMagnitude(stickInput, 1f);
+            IsLocked = true;
+            IsHeld = false;
+            StickInput = LockedInput;
+            knobVelocity = Vector2.zero;
+            if (knob != null)
+            {
+                knob.anchoredPosition = LockedInput * TravelRadius;
+            }
+            ApplyHighlight();
+        }
+
+        /// <summary>Clears a lock: X/Y stop changing and the knob springs back to the center.</summary>
+        public void Unlock()
+        {
+            if (!IsLocked)
+            {
+                return;
+            }
+            IsLocked = false;
+            LockedInput = Vector2.zero;
+            if (!IsHeld)
+            {
+                StickInput = Vector2.zero;
+            }
             ApplyHighlight();
         }
 
@@ -312,7 +360,8 @@ namespace MixedReality.Toolkit.Examples.Demos
         {
             if (knobHighlight != null)
             {
-                knobHighlight.color = IsHeld ? activeColor : Color.Lerp(idleColor, activeColor, engageProgress * 0.6f);
+                Color baseColor = IsLocked ? lockedColor : idleColor;
+                knobHighlight.color = IsHeld ? activeColor : Color.Lerp(baseColor, activeColor, engageProgress * 0.6f);
             }
         }
 

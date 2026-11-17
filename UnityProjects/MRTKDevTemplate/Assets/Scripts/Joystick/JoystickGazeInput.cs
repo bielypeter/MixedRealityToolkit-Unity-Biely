@@ -3,6 +3,7 @@
 
 using MixedReality.Toolkit.Input;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace MixedReality.Toolkit.Examples.Demos
 {
@@ -13,6 +14,12 @@ namespace MixedReality.Toolkit.Examples.Demos
     /// Dwell on the joystick to grab the knob; while held, the knob follows the gaze point on the joystick plane,
     /// so looking further from the center changes X/Y faster. Looking away from the joystick releases it.
     /// Uses MRTK's <see cref="GazeInteractor"/>, which is fed by the Pupil Labs Neon (or the input simulator).
+    /// <para>
+    /// Optional lock ring: a ring around the joystick (with a small gap). While the knob is held, moving the gaze
+    /// out of the joystick into the ring and staying there for <see cref="lockDwell"/> locks the stick position
+    /// (direction and speed) so it keeps driving while the user looks around. Grabbing the joystick again, or
+    /// dwelling on the optional stop button, clears the lock.
+    /// </para>
     /// </remarks>
     [RequireComponent(typeof(JoystickController))]
     [AddComponentMenu("MRTK/Examples/Joystick Gaze Input")]
@@ -42,11 +49,56 @@ namespace MixedReality.Toolkit.Examples.Demos
         [Tooltip("Smoothing time constant for the gaze point, to reduce eye-tracking jitter. 0 = raw.")]
         private float smoothing = 0.06f;
 
+        [Header("Lock ring (optional)")]
+        [SerializeField]
+        [Tooltip("Ring around the joystick, centered on it. Outer radius = half its rect, inner radius = outer - outline thickness. Empty = no locking.")]
+        private RoundedShapeGraphic lockRing;
+
+        [SerializeField]
+        [Tooltip("Optional marker placed on the ring at the locked direction; shown only while locked.")]
+        private RectTransform lockMarker;
+
+        [SerializeField]
+        [Min(0f)]
+        [Tooltip("Seconds the gaze must stay in the ring, coming from the held joystick, to lock.")]
+        private float lockDwell = 0.2f;
+
+        [SerializeField]
+        private Color ringIdleColor = new Color(1f, 1f, 1f, 0.12f);
+
+        [SerializeField]
+        private Color ringLockedColor = new Color(0.49f, 0.61f, 1f, 0.55f);
+
+        [Header("Stop button (optional)")]
+        [SerializeField]
+        [Tooltip("Gaze target of the stop button; dwelling on it clears a lock.")]
+        private RectTransform stopButton;
+
+        [SerializeField]
+        private Graphic stopHighlight;
+
+        [SerializeField]
+        [Min(0f)]
+        private float stopDwell = 0.4f;
+
+        [SerializeField]
+        private Color stopIdleColor = new Color(0.13f, 0.14f, 0.16f, 0.18f);
+
+        [SerializeField]
+        [Tooltip("Stop button while something is locked (i.e. stopping is possible).")]
+        private Color stopReadyColor = new Color(1f, 0.42f, 0.42f, 0.35f);
+
+        [SerializeField]
+        private Color stopActiveColor = new Color(1f, 0.42f, 0.42f, 0.9f);
+
         private JoystickController joystick;
         private RectTransform rectTransform;
         private Vector2 smoothedPoint;
         private float dwellTimer;
         private float outsideTimer;
+        private float lockTimer;
+        private float stopTimer;
+        private bool stopConsumed;
         private bool holding;
 
         public GazeInteractor GazeInteractor
@@ -61,6 +113,13 @@ namespace MixedReality.Toolkit.Examples.Demos
             rectTransform = (RectTransform)transform;
         }
 
+        private void OnEnable()
+        {
+            lockTimer = stopTimer = 0f;
+            stopConsumed = false;
+            RefreshLockVisuals();
+        }
+
         private void OnDisable()
         {
             Release();
@@ -71,8 +130,11 @@ namespace MixedReality.Toolkit.Examples.Demos
         private void Update()
         {
             bool hasPoint = GazeRayUtility.TryGetGazePoint(ref gazeInteractor, rectTransform, out Vector2 point);
+            Vector2 offset = hasPoint ? point - rectTransform.rect.center : Vector2.zero;
             float radius = joystick.BaseRadius;
-            float distance = hasPoint ? (point - rectTransform.rect.center).magnitude : float.MaxValue;
+            float distance = hasPoint ? offset.magnitude : float.MaxValue;
+
+            UpdateStop();
 
             if (!holding)
             {
@@ -84,8 +146,9 @@ namespace MixedReality.Toolkit.Examples.Demos
                     {
                         holding = true;
                         outsideTimer = 0f;
+                        lockTimer = 0f;
                         smoothedPoint = point;
-                        joystick.BeginHold();
+                        joystick.BeginHold(); // also clears a lock
                         joystick.UpdateHold(smoothedPoint);
                     }
                 }
@@ -94,27 +157,131 @@ namespace MixedReality.Toolkit.Examples.Demos
                     dwellTimer = 0f;
                     joystick.SetEngageProgress(0f);
                 }
+                RefreshLockVisuals();
                 return;
             }
 
             if (distance <= radius * (1f + releaseMargin))
             {
                 outsideTimer = 0f;
+                lockTimer = 0f;
                 smoothedPoint = Vector2.Lerp(smoothedPoint, point, GazeRayUtility.SmoothingFactor(smoothing));
                 joystick.UpdateHold(smoothedPoint);
             }
+            else if (IsInLockRing(distance))
+            {
+                // The knob keeps its last position inside the joystick, so driving continues while the lock dwells.
+                outsideTimer = 0f;
+                lockTimer += Time.deltaTime;
+                if (lockTimer >= lockDwell)
+                {
+                    TryLock();
+                }
+            }
             else
             {
+                lockTimer = 0f;
                 outsideTimer += Time.deltaTime;
                 if (outsideTimer >= releaseDelay)
                 {
                     Release();
                 }
             }
+            RefreshLockVisuals();
+        }
+
+        private bool IsInLockRing(float distance)
+        {
+            if (lockRing == null || !lockRing.isActiveAndEnabled)
+            {
+                return false;
+            }
+            Rect ringRect = lockRing.rectTransform.rect;
+            float outer = Mathf.Min(ringRect.width, ringRect.height) * 0.5f;
+            float inner = Mathf.Max(0f, outer - lockRing.OutlineThickness);
+            return distance >= inner && distance <= outer * (1f + releaseMargin);
+        }
+
+        private void TryLock()
+        {
+            Vector2 input = joystick.StickInput;
+            lockTimer = 0f;
+            if (input == Vector2.zero || joystick.Velocity == Vector2.zero)
+            {
+                Release(); // stick in the dead zone: nothing to lock
+                return;
+            }
+
+            holding = false;
+            dwellTimer = 0f;
+            joystick.Lock(input);
+            joystick.SetEngageProgress(0f);
+
+            if (lockMarker != null && lockRing != null)
+            {
+                Rect ringRect = lockRing.rectTransform.rect;
+                float outer = Mathf.Min(ringRect.width, ringRect.height) * 0.5f;
+                float middle = outer - lockRing.OutlineThickness * 0.5f;
+                lockMarker.anchoredPosition = input.normalized * middle;
+            }
+        }
+
+        private void UpdateStop()
+        {
+            if (stopButton == null)
+            {
+                return;
+            }
+
+            bool looking = GazeRayUtility.TryGetGazePoint(ref gazeInteractor, stopButton, out Vector2 stopPoint)
+                && stopButton.rect.Contains(stopPoint);
+            if (!looking)
+            {
+                stopTimer = 0f;
+                stopConsumed = false;
+            }
+            else if (!stopConsumed)
+            {
+                stopTimer += Time.deltaTime;
+                if (stopTimer >= stopDwell)
+                {
+                    stopConsumed = true; // look away before it can fire again
+                    stopTimer = 0f;
+                    joystick.Unlock();
+                }
+            }
+
+            if (stopHighlight != null)
+            {
+                Color baseColor = joystick.IsLocked ? stopReadyColor : stopIdleColor;
+                float progress = stopConsumed || stopDwell <= 0f ? 0f : Mathf.Clamp01(stopTimer / stopDwell);
+                stopHighlight.color = Color.Lerp(baseColor, stopActiveColor, progress * 0.8f);
+            }
+        }
+
+        private void RefreshLockVisuals()
+        {
+            if (lockRing != null)
+            {
+                float progress = holding && lockDwell > 0f ? Mathf.Clamp01(lockTimer / lockDwell) : 0f;
+                lockRing.color = joystick != null && joystick.IsLocked
+                    ? ringLockedColor
+                    : Color.Lerp(ringIdleColor, ringLockedColor, progress);
+            }
+
+            if (lockMarker != null)
+            {
+                bool show = joystick != null && joystick.IsLocked;
+                if (lockMarker.gameObject.activeSelf != show)
+                {
+                    lockMarker.gameObject.SetActive(show);
+                }
+            }
         }
 
         private void Release()
         {
+            lockTimer = 0f;
             if (holding)
             {
                 holding = false;
