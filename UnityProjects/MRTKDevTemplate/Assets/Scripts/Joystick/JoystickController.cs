@@ -117,6 +117,9 @@ namespace MixedReality.Toolkit.Examples.Demos
         /// <summary>The locked stick position (unit circle); zero when not locked.</summary>
         public Vector2 LockedInput { get; private set; }
 
+        /// <summary>True while a lock is being steered sideways (see <see cref="BeginSteer"/>).</summary>
+        public bool IsSteering { get; private set; }
+
         public Vector2Event OnValueChanged => onValueChanged;
 
         public float MaxSpeed
@@ -154,6 +157,7 @@ namespace MixedReality.Toolkit.Examples.Demos
             rectTransform = (RectTransform)transform;
             IsHeld = false;
             IsLocked = false;
+            IsSteering = false;
             LockedInput = Vector2.zero;
             StickInput = Vector2.zero;
             Velocity = Vector2.zero;
@@ -172,14 +176,19 @@ namespace MixedReality.Toolkit.Examples.Demos
                 return;
             }
 
-            if (!IsHeld && !IsLocked && knob != null && knob.anchoredPosition != Vector2.zero)
+            if (!IsHeld && !IsSteering && knob != null)
             {
-                knob.anchoredPosition = returnTime > 0f
-                    ? Vector2.SmoothDamp(knob.anchoredPosition, Vector2.zero, ref knobVelocity, returnTime)
-                    : Vector2.zero;
-                if (knob.anchoredPosition.sqrMagnitude < 0.0001f)
+                // Released: back to the center, or to the locked position (e.g. after steering a lock).
+                Vector2 rest = IsLocked ? LockedInput * TravelRadius : Vector2.zero;
+                if (knob.anchoredPosition != rest)
                 {
-                    knob.anchoredPosition = Vector2.zero;
+                    knob.anchoredPosition = returnTime > 0f
+                        ? Vector2.SmoothDamp(knob.anchoredPosition, rest, ref knobVelocity, returnTime)
+                        : rest;
+                    if ((knob.anchoredPosition - rest).sqrMagnitude < 0.0001f)
+                    {
+                        knob.anchoredPosition = rest;
+                    }
                 }
             }
 
@@ -230,6 +239,7 @@ namespace MixedReality.Toolkit.Examples.Demos
         {
             IsHeld = true;
             IsLocked = false; // taking the stick again overrides a lock
+            IsSteering = false;
             LockedInput = Vector2.zero;
             knobVelocity = Vector2.zero;
             engageProgress = 0f;
@@ -262,6 +272,7 @@ namespace MixedReality.Toolkit.Examples.Demos
             LockedInput = Vector2.ClampMagnitude(stickInput, 1f);
             IsLocked = true;
             IsHeld = false;
+            IsSteering = false;
             StickInput = LockedInput;
             knobVelocity = Vector2.zero;
             if (knob != null)
@@ -279,6 +290,7 @@ namespace MixedReality.Toolkit.Examples.Demos
                 return;
             }
             IsLocked = false;
+            IsSteering = false;
             LockedInput = Vector2.zero;
             if (!IsHeld)
             {
@@ -286,6 +298,63 @@ namespace MixedReality.Toolkit.Examples.Demos
             }
             ApplyHighlight();
         }
+
+        /// <summary>
+        /// Starts steering a lock: the knob's X follows <see cref="UpdateSteer"/> while Y stays at the locked value,
+        /// so the chair can be corrected sideways without losing the locked speed. No effect when not locked.
+        /// </summary>
+        public void BeginSteer()
+        {
+            if (!IsLocked)
+            {
+                return;
+            }
+            IsSteering = true;
+            knobVelocity = Vector2.zero;
+            engageProgress = 0f;
+            ApplyHighlight();
+        }
+
+        /// <summary>Steers a lock towards a point given in the base's local space (only its X is used).</summary>
+        public void UpdateSteer(Vector2 localPoint)
+        {
+            if (!IsLocked || !IsSteering)
+            {
+                return;
+            }
+            float x = LocalToStick(localPoint).x;
+            StickInput = Vector2.ClampMagnitude(new Vector2(x, LockedInput.y), 1f);
+            if (knob != null)
+            {
+                knob.anchoredPosition = StickInput * TravelRadius;
+            }
+        }
+
+        /// <summary>Stops steering; the lock goes on with its locked position and the knob returns to it.</summary>
+        public void EndSteer()
+        {
+            if (!IsSteering)
+            {
+                return;
+            }
+            IsSteering = false;
+            if (IsLocked)
+            {
+                StickInput = LockedInput;
+            }
+            ApplyHighlight();
+        }
+
+        /// <summary>Converts a point in the base's local space to a stick position on the unit circle.</summary>
+        public Vector2 LocalToStick(Vector2 localPoint)
+        {
+            // The base pivot may not be centered; measure from the rect center.
+            float radius = TravelRadius;
+            return Vector2.ClampMagnitude(localPoint - rectTransform.rect.center, radius) / radius;
+        }
+
+        /// <summary>Rate of change a stick position (unit circle) would produce; zero inside the dead zone.</summary>
+        public Vector2 VelocityFor(Vector2 stickInput) => ComputeVelocity(stickInput);
 
         /// <summary>Feedback while an input source is about to engage (0 = idle, 1 = engaged).</summary>
         public void SetEngageProgress(float progress)
@@ -315,16 +384,11 @@ namespace MixedReality.Toolkit.Examples.Demos
 
         private void MoveKnob(Vector2 local)
         {
-            // The base pivot may not be centered; measure from the rect center.
-            Vector2 offset = local - rectTransform.rect.center;
-            float radius = TravelRadius;
-            Vector2 clamped = Vector2.ClampMagnitude(offset, radius);
-
+            StickInput = LocalToStick(local);
             if (knob != null)
             {
-                knob.anchoredPosition = clamped;
+                knob.anchoredPosition = StickInput * TravelRadius;
             }
-            StickInput = clamped / radius;
         }
 
         private bool TryGetLocalPoint(PointerEventData eventData, out Vector2 local)
@@ -361,7 +425,7 @@ namespace MixedReality.Toolkit.Examples.Demos
             if (knobHighlight != null)
             {
                 Color baseColor = IsLocked ? lockedColor : idleColor;
-                knobHighlight.color = IsHeld ? activeColor : Color.Lerp(baseColor, activeColor, engageProgress * 0.6f);
+                knobHighlight.color = IsHeld || IsSteering ? activeColor : Color.Lerp(baseColor, activeColor, engageProgress * 0.6f);
             }
         }
 

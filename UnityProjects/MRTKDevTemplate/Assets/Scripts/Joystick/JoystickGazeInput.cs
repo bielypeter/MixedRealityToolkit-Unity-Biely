@@ -20,11 +20,25 @@ namespace MixedReality.Toolkit.Examples.Demos
     /// (direction and speed) so it keeps driving while the user looks around. Grabbing the joystick again, or
     /// dwelling on the optional stop button, clears the lock.
     /// </para>
+    /// <para>
+    /// With <see cref="LockMode.ForwardWithSteering"/> the ring locks only the forward speed. Looking back at the
+    /// joystick (a short dwell) then steers sideways while that speed is kept; looking deep into its backward half
+    /// drops the lock and the stick is held normally again. The stop button also clears it.
+    /// </para>
     /// </remarks>
     [RequireComponent(typeof(JoystickController))]
     [AddComponentMenu("MRTK/Examples/Joystick Gaze Input")]
     public class JoystickGazeInput : MonoBehaviour
     {
+        public enum LockMode
+        {
+            /// <summary>The whole stick position (direction and speed) is locked; grabbing the joystick clears it.</summary>
+            WholeStick,
+
+            /// <summary>Only the forward speed is locked; the joystick then steers it sideways.</summary>
+            ForwardWithSteering,
+        }
+
         [SerializeField]
         [Tooltip("Gaze interactor providing the eye ray. Found automatically when empty.")]
         private GazeInteractor gazeInteractor;
@@ -62,6 +76,20 @@ namespace MixedReality.Toolkit.Examples.Demos
         [Min(0f)]
         [Tooltip("Seconds the gaze must stay in the ring, coming from the held joystick, to lock.")]
         private float lockDwell = 0.2f;
+
+        [SerializeField]
+        [Tooltip("What the ring locks: the whole stick, or only the forward speed with sideways steering afterwards.")]
+        private LockMode lockMode = LockMode.WholeStick;
+
+        [SerializeField]
+        [Min(0f)]
+        [Tooltip("Forward lock: seconds on the joystick before it starts steering the lock.")]
+        private float steerEngageDwell = 0.2f;
+
+        [SerializeField]
+        [Range(0f, 1f)]
+        [Tooltip("Forward lock: how far below the center (fraction of the knob travel) the gaze must go while steering to drop the lock.")]
+        private float unlockBackDepth = 0.5f;
 
         [SerializeField]
         private Color ringIdleColor = new Color(1f, 1f, 1f, 0.12f);
@@ -136,20 +164,37 @@ namespace MixedReality.Toolkit.Examples.Demos
 
             UpdateStop();
 
+            // A lock cleared from elsewhere (stop button) while steering it leaves nothing to hold.
+            if (holding && !joystick.IsHeld && !joystick.IsSteering)
+            {
+                holding = false;
+                dwellTimer = 0f;
+            }
+
             if (!holding)
             {
+                bool steerLock = lockMode == LockMode.ForwardWithSteering && joystick.IsLocked;
+                float dwell = steerLock ? steerEngageDwell : engageDwell;
                 if (distance <= radius && !joystick.IsHeld)
                 {
                     dwellTimer += Time.deltaTime;
-                    joystick.SetEngageProgress(engageDwell > 0f ? dwellTimer / engageDwell : 1f);
-                    if (dwellTimer >= engageDwell)
+                    joystick.SetEngageProgress(dwell > 0f ? dwellTimer / dwell : 1f);
+                    if (dwellTimer >= dwell)
                     {
                         holding = true;
+                        dwellTimer = 0f;
                         outsideTimer = 0f;
                         lockTimer = 0f;
                         smoothedPoint = point;
-                        joystick.BeginHold(); // also clears a lock
-                        joystick.UpdateHold(smoothedPoint);
+                        if (steerLock)
+                        {
+                            joystick.BeginSteer(); // keeps the locked forward speed
+                        }
+                        else
+                        {
+                            joystick.BeginHold(); // also clears a lock
+                        }
+                        HoldAt(smoothedPoint);
                     }
                 }
                 else if (dwellTimer > 0f)
@@ -166,9 +211,9 @@ namespace MixedReality.Toolkit.Examples.Demos
                 outsideTimer = 0f;
                 lockTimer = 0f;
                 smoothedPoint = Vector2.Lerp(smoothedPoint, point, GazeRayUtility.SmoothingFactor(smoothing));
-                joystick.UpdateHold(smoothedPoint);
+                HoldAt(smoothedPoint);
             }
-            else if (IsInLockRing(distance))
+            else if (IsInLockRing(distance, offset))
             {
                 // The knob keeps its last position inside the joystick, so driving continues while the lock dwells.
                 outsideTimer = 0f;
@@ -190,11 +235,30 @@ namespace MixedReality.Toolkit.Examples.Demos
             RefreshLockVisuals();
         }
 
-        private bool IsInLockRing(float distance)
+        private void HoldAt(Vector2 point)
+        {
+            if (joystick.IsSteering)
+            {
+                if (joystick.LocalToStick(point).y > -unlockBackDepth)
+                {
+                    joystick.UpdateSteer(point);
+                    return;
+                }
+                // Deep into reverse: drop the lock and hand the stick over to normal holding.
+                joystick.BeginHold();
+            }
+            joystick.UpdateHold(point);
+        }
+
+        private bool IsInLockRing(float distance, Vector2 offset)
         {
             if (lockRing == null || !lockRing.isActiveAndEnabled)
             {
                 return false;
+            }
+            if (lockRing.TopHalf && offset.y < 0f)
+            {
+                return false; // half ring: only its upper half locks
             }
             Rect ringRect = lockRing.rectTransform.rect;
             float outer = Mathf.Min(ringRect.width, ringRect.height) * 0.5f;
@@ -205,10 +269,15 @@ namespace MixedReality.Toolkit.Examples.Demos
         private void TryLock()
         {
             Vector2 input = joystick.StickInput;
-            lockTimer = 0f;
-            if (input == Vector2.zero || joystick.Velocity == Vector2.zero)
+            if (lockMode == LockMode.ForwardWithSteering)
             {
-                Release(); // stick in the dead zone: nothing to lock
+                // Only the forward speed; while steering a lock, keep its speed rather than the steered one.
+                input = new Vector2(0f, joystick.IsSteering ? joystick.LockedInput.y : Mathf.Max(0f, input.y));
+            }
+            lockTimer = 0f;
+            if (input == Vector2.zero || joystick.VelocityFor(input) == Vector2.zero)
+            {
+                Release(); // stick in the dead zone (or, for a forward lock, not going forward): nothing to lock
                 return;
             }
 
@@ -286,7 +355,14 @@ namespace MixedReality.Toolkit.Examples.Demos
             {
                 holding = false;
                 dwellTimer = 0f;
-                joystick.EndHold();
+                if (joystick.IsSteering)
+                {
+                    joystick.EndSteer(); // the lock goes on, straight ahead
+                }
+                else
+                {
+                    joystick.EndHold();
+                }
                 joystick.SetEngageProgress(0f);
             }
         }

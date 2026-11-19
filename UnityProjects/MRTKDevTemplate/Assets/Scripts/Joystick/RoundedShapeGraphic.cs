@@ -43,6 +43,16 @@ namespace MixedReality.Toolkit.Examples.Demos
         [Tooltip("Number of segments used to tessellate each corner.")]
         private int cornerSegments = 16;
 
+        [SerializeField]
+        [Tooltip("Draw only the top half (the two top corners): a half circle / half ring when Circle is on.")]
+        private bool topHalf = false;
+
+        public bool TopHalf
+        {
+            get => topHalf;
+            set { topHalf = value; SetVerticesDirty(); }
+        }
+
         public bool Circle
         {
             get => circle;
@@ -105,10 +115,11 @@ namespace MixedReality.Toolkit.Examples.Demos
                 int innerStart = AddRing(vh, rect, radius, feather, solid);
                 Stitch(vh, outerStart, innerStart);
 
+                // A half shape closes along its flat bottom edge, through the center.
                 int center = vh.currentVertCount;
-                vh.AddVert(rect.center, solid, Vector2.zero);
+                vh.AddVert(topHalf ? new Vector2(rect.center.x, corners[0].y) : rect.center, solid, Vector2.zero);
                 int count = directions.Count;
-                for (int i = 0; i < count; i++)
+                for (int i = 0; i < SegmentCount; i++)
                 {
                     vh.AddTriangle(center, innerStart + i, innerStart + (i + 1) % count);
                 }
@@ -142,7 +153,7 @@ namespace MixedReality.Toolkit.Examples.Demos
             corners.Add(new Vector2(rect.xMax - radius, rect.yMin + radius));
 
             int segments = Mathf.Max(2, cornerSegments);
-            for (int corner = 0; corner < 4; corner++)
+            for (int corner = 0; corner < (topHalf ? 2 : 4); corner++)
             {
                 float start = corner * 90f;
                 for (int s = 0; s <= segments; s++)
@@ -183,10 +194,13 @@ namespace MixedReality.Toolkit.Examples.Demos
             return start;
         }
 
+        /// <summary>Perimeter segments to draw: a closed loop, or an open arc for <see cref="TopHalf"/>.</summary>
+        private int SegmentCount => topHalf ? directions.Count - 1 : directions.Count;
+
         private void Stitch(VertexHelper vh, int outerStart, int innerStart)
         {
             int count = directions.Count;
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < SegmentCount; i++)
             {
                 int next = (i + 1) % count;
                 vh.AddTriangle(outerStart + i, outerStart + next, innerStart + next);
